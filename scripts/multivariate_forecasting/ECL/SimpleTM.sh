@@ -1,6 +1,19 @@
 export CUDA_VISIBLE_DEVICES=0
 model_name=SimpleTM
 
+# Set DEBUG_STAGEWISE=1 to print internal tensors stage-by-stage during the *test* phase.
+# Example:
+#   DEBUG_STAGEWISE=1 bash scripts/multivariate_forecasting/ECL/SimpleTM.sh
+DEBUG_STAGEWISE=${DEBUG_STAGEWISE:-0}
+DEBUG_MAX_BATCHES=${DEBUG_MAX_BATCHES:-1}
+DEBUG_PREVIEW_LEN=${DEBUG_PREVIEW_LEN:-5}
+
+EXTRA_ARGS=""
+if [ "$DEBUG_STAGEWISE" = "1" ]; then
+  EXTRA_ARGS="--debug_stagewise --debug_max_batches ${DEBUG_MAX_BATCHES} --debug_preview_len ${DEBUG_PREVIEW_LEN}"
+  echo "[Debug] Stagewise logging enabled for test phase: ${EXTRA_ARGS}"
+fi
+
 python -u run.py \
   --is_training 1 \
   --lradj 'TST' \
@@ -17,7 +30,7 @@ python -u run.py \
   --d_model 256 \
   --d_ff 1024 \
   --learning_rate 0.01 \
-  --batch_size 256 \
+  --batch_size ${BATCH_SIZE:-256} \
   --fix_seed 2025 \
   --use_norm 1 \
   --wv "db1" \
@@ -28,7 +41,8 @@ python -u run.py \
   --des 'Exp' \
   --itr 3 \
   --alpha 0.0 \
-  --l1_weight 0.0
+  --l1_weight 0.0 \
+  ${EXTRA_ARGS}
 
 python -u run.py \
   --is_training 1 \
@@ -46,7 +60,7 @@ python -u run.py \
   --d_model 256 \
   --d_ff 1024 \
   --learning_rate 0.006 \
-  --batch_size 256 \
+  --batch_size ${BATCH_SIZE:-256} \
   --fix_seed 2025 \
   --use_norm 1 \
   --wv "db1" \
@@ -57,7 +71,8 @@ python -u run.py \
   --des 'Exp' \
   --itr 3 \
   --alpha 0.0 \
-  --l1_weight 0.0
+  --l1_weight 0.0 \
+  ${EXTRA_ARGS}
 
 python -u run.py \
   --is_training 1 \
@@ -75,7 +90,7 @@ python -u run.py \
   --d_model 256 \
   --d_ff 1024 \
   --learning_rate 0.006 \
-  --batch_size 256 \
+  --batch_size ${BATCH_SIZE:-256} \
   --fix_seed 2025 \
   --use_norm 1 \
   --wv "db1" \
@@ -86,7 +101,8 @@ python -u run.py \
   --des 'Exp' \
   --itr 3 \
   --alpha 0.0 \
-  --l1_weight 5e-5
+  --l1_weight 5e-5 \
+  ${EXTRA_ARGS}
 
 python -u run.py \
   --is_training 1 \
@@ -104,7 +120,7 @@ python -u run.py \
   --d_model 256 \
   --d_ff 1024 \
   --learning_rate 0.006 \
-  --batch_size 256 \
+  --batch_size ${BATCH_SIZE:-256} \
   --fix_seed 2025 \
   --use_norm 1 \
   --wv "db1" \
@@ -115,4 +131,5 @@ python -u run.py \
   --des 'Exp' \
   --itr 3 \
   --alpha 0.0 \
-  --l1_weight 5e-5
+  --l1_weight 5e-5 \
+  ${EXTRA_ARGS}

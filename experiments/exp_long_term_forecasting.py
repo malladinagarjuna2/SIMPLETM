@@ -353,14 +353,20 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     if self.args.output_attention:
                         outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                     else:
+                        model_for_debug = self.model.module if hasattr(self.model, 'module') else self.model
+                        deep_debug_this_batch = bool(self.args.debug_stagewise and i < self.args.debug_max_batches)
+                        if hasattr(model_for_debug, 'set_debug'):
+                            model_for_debug.set_debug(deep_debug_this_batch)
                         outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                        if hasattr(model_for_debug, 'set_debug'):
+                            model_for_debug.set_debug(False)
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
-                model_for_debug = self.model.module if hasattr(self.model, 'module') else self.model
                 if self.args.debug_stagewise and i < self.args.debug_max_batches:
+                    model_for_debug = self.model.module if hasattr(self.model, 'module') else self.model
                     self._print_stagewise_trace(
                         i,
                         batch_x_cpu,
