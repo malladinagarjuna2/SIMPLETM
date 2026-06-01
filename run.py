@@ -95,6 +95,9 @@ if __name__ == '__main__':
     parser.add_argument('--output_attention', action='store_true', help='Set to False to output attn, which can be used to compute training loss')
     parser.add_argument('--debug_stagewise', action='store_true',
                         help='Print detailed dataset and model stage traces during test/predict runs')
+    parser.add_argument('--debug_test_only', action='store_true',
+                        help='Only enable deep per-layer prints for test runs (recommended).',
+                        default=True)
     parser.add_argument('--debug_max_batches', type=int, default=1,
                         help='Number of batches to trace when debug_stagewise is enabled')
     parser.add_argument('--debug_preview_len', type=int, default=5,
