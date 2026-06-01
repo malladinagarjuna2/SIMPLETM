@@ -93,6 +93,12 @@ if __name__ == '__main__':
     parser.add_argument('--e_layers', type=int, default=1, help='Number of SimpleTM layers')
     parser.add_argument('--compile', type=bool, default=False, help='Set to True to enable compilation, which can accelerate speed but may slightly impact performance')
     parser.add_argument('--output_attention', action='store_true', help='Set to False to output attn, which can be used to compute training loss')
+    parser.add_argument('--debug_stagewise', action='store_true',
+                        help='Print detailed dataset and model stage traces during test/predict runs')
+    parser.add_argument('--debug_max_batches', type=int, default=1,
+                        help='Number of batches to trace when debug_stagewise is enabled')
+    parser.add_argument('--debug_preview_len', type=int, default=5,
+                        help='Number of values to preview per traced tensor')
 
     parser.add_argument('--fix_seed', type=int, default=2025, help='gpu')
     

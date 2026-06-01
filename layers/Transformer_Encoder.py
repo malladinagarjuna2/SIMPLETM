@@ -13,18 +13,47 @@ class EncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
         self.activation = F.relu if activation == "relu" else F.gelu
+        self.debug_stagewise = False
+        self.debug_preview_len = 5
+
+    def _log_tensor(self, name, tensor):
+        if not self.debug_stagewise:
+            return
+
+        detached = tensor.detach().cpu()
+        flat = detached.reshape(-1)
+        preview = flat[:max(1, int(self.debug_preview_len))].tolist()
+        print(
+            f'[EncoderLayer] {name}: shape={tuple(detached.shape)}, '
+            f'mean={detached.mean().item():.6f}, std={detached.std(unbiased=False).item():.6f}, '
+            f'min={detached.min().item():.6f}, max={detached.max().item():.6f}, '
+            f'preview={preview}'
+        )
 
     def forward(self, x, attn_mask=None, tau=None, delta=None):
+        self.attention.debug_stagewise = self.debug_stagewise
+        self.attention.debug_preview_len = self.debug_preview_len
+        self.attention.inner_attention.debug_stagewise = self.debug_stagewise
+        self.attention.inner_attention.debug_preview_len = self.debug_preview_len
+
+        self._log_tensor('input_tokens', x)
         new_x, attn = self.attention(
             x, x, x,
             attn_mask=attn_mask,
             tau=tau, delta=delta
         )
+        self._log_tensor('attention_output', new_x)
         x = x + self.dropout(new_x)
+        self._log_tensor('after_residual_add', x)
         y = x = self.norm1(x)
+        self._log_tensor('after_norm1', x)
         y = self.dropout(self.activation(self.conv1(y.transpose(-1, 1))))
+        self._log_tensor('after_feedforward_conv1', y)
         y = self.dropout(self.conv2(y).transpose(-1, 1))
-        return self.norm2(x + y), attn
+        self._log_tensor('after_feedforward_conv2', y)
+        out = self.norm2(x + y)
+        self._log_tensor('after_norm2_updated_tokens', out)
+        return out, attn
 
 
 class Encoder(nn.Module):
@@ -47,6 +76,9 @@ class Encoder(nn.Module):
             attns.append(attn)
         else:
             for attn_layer in self.attn_layers:
+                if hasattr(attn_layer, 'debug_stagewise'):
+                    attn_layer.debug_stagewise = getattr(self, 'debug_stagewise', False)
+                    attn_layer.debug_preview_len = getattr(self, 'debug_preview_len', 5)
                 x, attn = attn_layer(x, attn_mask=attn_mask, tau=tau, delta=delta)
                 attns.append(attn)
 

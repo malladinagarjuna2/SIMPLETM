@@ -13,6 +13,9 @@ class WaveletEmbedding(nn.Module):
         self.swt = swt
         self.d_channel = d_channel
         self.m = m  # Number of decomposition levels of detailed coefficients
+        self.debug_stagewise = False
+        self.debug_preview_len = 5
+        self.debug_prefix = 'Wavelet'
         
         if kernel_size is None:
             self.wavelet = pywt.Wavelet(wv)
@@ -36,25 +39,42 @@ class WaveletEmbedding(nn.Module):
                 self.h0.data = self.h0.data / torch.norm(self.h0.data, dim=-1, keepdim=True)
                 self.h1.data = self.h1.data / torch.norm(self.h1.data, dim=-1, keepdim=True)
 
+    def _log_tensor(self, name, tensor):
+        if not self.debug_stagewise:
+            return
+
+        detached = tensor.detach().cpu()
+        flat = detached.reshape(-1)
+        preview = flat[:max(1, int(self.debug_preview_len))].tolist()
+        print(
+            f'[{self.debug_prefix}] {name}: shape={tuple(detached.shape)}, '
+            f'mean={detached.mean().item():.6f}, std={detached.std(unbiased=False).item():.6f}, '
+            f'min={detached.min().item():.6f}, max={detached.max().item():.6f}, '
+            f'preview={preview}'
+        )
 
     def forward(self, x):
+        self._log_tensor('input', x)
         if self.swt:
             coeffs = self.swt_decomposition(x, self.h0, self.h1, self.m, self.kernel_size)
         else:
             coeffs = self.swt_reconstruction(x, self.h0, self.h1, self.m, self.kernel_size)
+        self._log_tensor('output', coeffs)
         return coeffs
 
     def swt_decomposition(self, x, h0, h1, depth, kernel_size):
         approx_coeffs = x
         coeffs = []
         dilation = 1
-        for _ in range(depth):
+        for level in range(depth):
             padding = dilation * (kernel_size - 1)
             padding_r = (kernel_size * dilation) // 2
             pad = (padding - padding_r, padding_r)
             approx_coeffs_pad = F.pad(approx_coeffs, pad, "circular")
             detail_coeff = F.conv1d(approx_coeffs_pad, h1, dilation=dilation, groups=x.shape[1])
             approx_coeffs = F.conv1d(approx_coeffs_pad, h0, dilation=dilation, groups=x.shape[1])
+            self._log_tensor(f'level_{level + 1}_detail_coeff', detail_coeff)
+            self._log_tensor(f'level_{level + 1}_approx_coeff', approx_coeffs)
             coeffs.append(detail_coeff)
             dilation *= 2
         coeffs.append(approx_coeffs)
@@ -77,6 +97,7 @@ class WaveletEmbedding(nn.Module):
             y = F.conv1d(approx_coeff_pad, g0, groups=approx_coeff.shape[1], dilation=dilation) + \
                 F.conv1d(detail_coeff_pad, g1, groups=detail_coeff.shape[1], dilation=dilation)
             approx_coeff = y / 2
+            self._log_tensor(f'reconstruction_level_{i + 1}', approx_coeff)
             dilation //= 2
             
         return approx_coeff
@@ -90,6 +111,8 @@ class GeomAttentionLayer(nn.Module):
 
         self.d_channel = d_channel
         self.inner_attention = attention
+        self.debug_stagewise = False
+        self.debug_preview_len = 5
         
         self.swt = WaveletEmbedding(d_channel=self.d_channel, swt=True, requires_grad=requires_grad, wv=wv, m=m, kernel_size=kernel_size)
         self.query_projection = nn.Sequential(
@@ -108,23 +131,53 @@ class GeomAttentionLayer(nn.Module):
             nn.Linear(d_model, d_model),
             WaveletEmbedding(d_channel=self.d_channel, swt=False, requires_grad=requires_grad, wv=wv, m=m, kernel_size=kernel_size),
         )
+
+    def _log_tensor(self, name, tensor):
+        if not self.debug_stagewise:
+            return
+
+        detached = tensor.detach().cpu()
+        flat = detached.reshape(-1)
+        preview = flat[:max(1, int(self.debug_preview_len))].tolist()
+        print(
+            f'[GeomAttentionLayer] {name}: shape={tuple(detached.shape)}, '
+            f'mean={detached.mean().item():.6f}, std={detached.std(unbiased=False).item():.6f}, '
+            f'min={detached.min().item():.6f}, max={detached.max().item():.6f}, '
+            f'preview={preview}'
+        )
         
     def forward(self, queries, keys, values, attn_mask=None, tau=None, delta=None):
+        self.swt.debug_stagewise = self.debug_stagewise
+        self.swt.debug_preview_len = self.debug_preview_len
+        self.swt.debug_prefix = 'StationaryWaveletTransform'
+        self.out_projection[1].debug_stagewise = self.debug_stagewise
+        self.out_projection[1].debug_preview_len = self.debug_preview_len
+        self.out_projection[1].debug_prefix = 'InverseWaveletUpdate'
+
+        self._log_tensor('queries_input', queries)
         queries = self.swt(queries)
         keys = self.swt(keys)
         values = self.swt(values)
+        self._log_tensor('queries_after_swt', queries)
+        self._log_tensor('keys_after_swt', keys)
+        self._log_tensor('values_after_swt', values)
 
         queries = self.query_projection(queries).permute(0,3,2,1)
         keys = self.key_projection(keys).permute(0,3,2,1)
         values = self.value_projection(values).permute(0,3,2,1)
+        self._log_tensor('queries_after_linear_projection', queries)
+        self._log_tensor('keys_after_linear_projection', keys)
+        self._log_tensor('values_after_linear_projection', values)
 
         out, attn = self.inner_attention(
             queries,
             keys,
             values,
         )
+        self._log_tensor('attention_weighted_values', out)
 
         out = self.out_projection(out.permute(0,3,2,1))
+        self._log_tensor('updated_multivariate_coefficients', out)
 
         return out, attn
 
@@ -140,6 +193,22 @@ class GeomAttention(nn.Module):
         self.dropout = nn.Dropout(attention_dropout)
         
         self.alpha = alpha 
+        self.debug_stagewise = False
+        self.debug_preview_len = 5
+
+    def _log_tensor(self, name, tensor):
+        if not self.debug_stagewise:
+            return
+
+        detached = tensor.detach().cpu()
+        flat = detached.reshape(-1)
+        preview = flat[:max(1, int(self.debug_preview_len))].tolist()
+        print(
+            f'[GeomAttention] {name}: shape={tuple(detached.shape)}, '
+            f'mean={detached.mean().item():.6f}, std={detached.std(unbiased=False).item():.6f}, '
+            f'min={detached.min().item():.6f}, max={detached.max().item():.6f}, '
+            f'preview={preview}'
+        )
 
     def forward(self, queries, keys, values, attn_mask=None):
         B, L, H, E = queries.shape
@@ -147,6 +216,7 @@ class GeomAttention(nn.Module):
         scale = self.scale or 1. / sqrt(E)
 
         dot_product = torch.einsum("blhe,bshe->bhls", queries, keys)
+        self._log_tensor('dot_product_scores', dot_product)
 
         queries_norm2 = torch.sum(queries**2, dim=-1)
         keys_norm2 = torch.sum(keys**2, dim=-1)
@@ -155,9 +225,11 @@ class GeomAttention(nn.Module):
         wedge_norm2 = queries_norm2 * keys_norm2 - dot_product ** 2          # (B, H, L, S)
         wedge_norm2 = F.relu(wedge_norm2)
         wedge_norm = torch.sqrt(wedge_norm2 + 1e-8)
+        self._log_tensor('wedge_product_norm', wedge_norm)
 
         scores = (1 - self.alpha) * dot_product + self.alpha * wedge_norm
         scores = scores * scale
+        self._log_tensor('combined_attention_scores', scores)
 
         if self.mask_flag:
             if attn_mask is None:
@@ -165,8 +237,10 @@ class GeomAttention(nn.Module):
             scores.masked_fill_(attn_mask.unsqueeze(1).unsqueeze(2) == 0, float('-inf'))
 
         A = self.dropout(torch.softmax(scores, dim=-1)) 
+        self._log_tensor('softmax_attention_weights', A)
 
         V = torch.einsum("bhls,bshd->blhd", A, values)
+        self._log_tensor('updated_value_tensor', V)
 
         if self.output_attention:
             return V.contiguous()

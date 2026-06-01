@@ -21,6 +21,93 @@ class Exp_Long_Term_Forecast(Exp_Basic):
     def __init__(self, args):
         super(Exp_Long_Term_Forecast, self).__init__(args)
 
+    def _preview_array(self, array_like, limit=None):
+        limit = limit or self.args.debug_preview_len
+        if torch.is_tensor(array_like):
+            flat = array_like.detach().cpu().reshape(-1).tolist()
+        else:
+            flat = np.asarray(array_like).reshape(-1).tolist()
+        return flat[:max(1, int(limit))]
+
+    def _summarize_tensor(self, name, tensor, limit=None):
+        if tensor is None:
+            print(f'{name}: None')
+            return
+
+        if torch.is_tensor(tensor):
+            detached = tensor.detach().cpu().float()
+        else:
+            detached = torch.as_tensor(np.asarray(tensor), dtype=torch.float32)
+
+        print(
+            f'{name}: shape={tuple(detached.shape)}, '
+            f'mean={detached.mean().item():.6f}, std={detached.std(unbiased=False).item():.6f}, '
+            f'min={detached.min().item():.6f}, max={detached.max().item():.6f}, '
+            f'preview={self._preview_array(detached, limit)}'
+        )
+
+    def _print_stagewise_trace(self, batch_idx, batch_x_cpu, batch_y_cpu, batch_x_mark_cpu, batch_y_mark_cpu,
+                               outputs_cpu, dataset, model_debug):
+        print('\n' + '=' * 80)
+        print(f'STAGEWISE DEBUG TRACE FOR TEST BATCH {batch_idx}')
+        print('=' * 80)
+        print(f'Dataset class: {dataset.__class__.__name__}')
+        print(
+            f'Window config: seq_len={self.args.seq_len}, label_len={self.args.label_len}, '
+            f'pred_len={self.args.pred_len}, features={self.args.features}'
+        )
+        print('Stage 1: Dataset windowing')
+        self._summarize_tensor('batch_x history window', batch_x_cpu)
+        self._summarize_tensor('batch_y target window', batch_y_cpu)
+        self._summarize_tensor('batch_x_mark time features', batch_x_mark_cpu)
+        self._summarize_tensor('batch_y_mark time features', batch_y_mark_cpu)
+
+        if hasattr(dataset, 'scaler'):
+            scaler_mean = getattr(dataset.scaler, 'mean_', None)
+            scaler_scale = getattr(dataset.scaler, 'scale_', None)
+            if scaler_mean is not None:
+                print(f'scaler mean preview: {self._preview_array(scaler_mean)}')
+            if scaler_scale is not None:
+                print(f'scaler std preview: {self._preview_array(scaler_scale)}')
+
+        print('Stage 2: Model internals')
+        if not model_debug:
+            print('No model debug information was captured.')
+        else:
+            for key in [
+                'input_x_enc',
+                'input_x_mark_enc',
+                'norm_means',
+                'norm_stdev',
+                'normalized_x_enc',
+                'embedding_output',
+                'encoder_output',
+                'projector_output_pre_denorm',
+                'forecast_output',
+            ]:
+                if key not in model_debug:
+                    continue
+                payload = model_debug[key]
+                if payload is None:
+                    print(f'{key}: None')
+                    continue
+                print(
+                    f'{key}: shape={payload["shape"]}, mean={payload["mean"]:.6f}, '
+                    f'std={payload["std"]:.6f}, min={payload["min"]:.6f}, max={payload["max"]:.6f}, '
+                    f'preview={payload["preview"]}'
+                )
+
+            if 'attention_regularizer' in model_debug:
+                print(f'attention_regularizer: {model_debug["attention_regularizer"]}')
+
+            for note in model_debug.get('notes', []):
+                print(f'note: {note}')
+
+        print('Stage 3: Final test tensors')
+        self._summarize_tensor('model outputs (before metric reshape)', outputs_cpu)
+        self._summarize_tensor('ground truth used for loss/metrics', batch_y_cpu[:, -self.args.pred_len:, :])
+        print('=' * 80 + '\n')
+
     def _build_model(self):
         model = self.model_dict[self.args.model].Model(self.args).float()
 
@@ -237,6 +324,11 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.model.eval()
         with torch.no_grad():
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+                batch_x_cpu = batch_x.clone()
+                batch_y_cpu = batch_y.clone()
+                batch_x_mark_cpu = None if batch_x_mark is None else batch_x_mark.clone()
+                batch_y_mark_cpu = None if batch_y_mark is None else batch_y_mark.clone()
+
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
 
@@ -266,6 +358,20 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+
+                model_for_debug = self.model.module if hasattr(self.model, 'module') else self.model
+                if self.args.debug_stagewise and i < self.args.debug_max_batches:
+                    self._print_stagewise_trace(
+                        i,
+                        batch_x_cpu,
+                        batch_y_cpu,
+                        batch_x_mark_cpu,
+                        batch_y_mark_cpu,
+                        outputs.detach().cpu(),
+                        test_data,
+                        getattr(model_for_debug, 'latest_debug', None)
+                    )
+
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
 
