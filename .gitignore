@@ -1,27 +1,2 @@
-# Project-specific artifacts
-checkpoints/
-results/
-*.pth
-*.pt
-*.ckpt
-*.npy
-
-# Python tooling (do NOT ignore .pyc files per repo preference)
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-coverage.xml
-htmlcov/
-
-# Jupyter
-.ipynb_checkpoints/
-
-# OS / editor
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-
-# Logs
-*.log
+__pycache__/
+*.py[cod]
