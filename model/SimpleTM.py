@@ -34,7 +34,11 @@ class Model(nn.Module):
                     GeomAttentionLayer(
                         GeomAttention(
                             False, configs.factor, attention_dropout=configs.dropout, 
-                            output_attention=configs.output_attention, alpha=self.alpha
+                            output_attention=configs.output_attention,
+                            alpha=self.alpha,
+                            score_mode=configs.score_mode,
+                            cross_weight=configs.cross_weight,
+                            cross_dim=configs.dec_in,
                         ),
                         configs.d_model, 
                         requires_grad=configs.requires_grad, 

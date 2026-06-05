@@ -7,12 +7,15 @@ model_name=SimpleTM
 DEBUG_STAGEWISE=${DEBUG_STAGEWISE:-0}
 DEBUG_MAX_BATCHES=${DEBUG_MAX_BATCHES:-1}
 DEBUG_PREVIEW_LEN=${DEBUG_PREVIEW_LEN:-5}
+SCORE_MODE=${SCORE_MODE:-dot_wedge}
+CROSS_WEIGHT=${CROSS_WEIGHT:-0.5}
 
-EXTRA_ARGS=""
+EXTRA_ARGS="--score_mode ${SCORE_MODE} --cross_weight ${CROSS_WEIGHT}"
 if [ "$DEBUG_STAGEWISE" = "1" ]; then
-  EXTRA_ARGS="--debug_stagewise --debug_max_batches ${DEBUG_MAX_BATCHES} --debug_preview_len ${DEBUG_PREVIEW_LEN}"
+  EXTRA_ARGS="${EXTRA_ARGS} --debug_stagewise --debug_max_batches ${DEBUG_MAX_BATCHES} --debug_preview_len ${DEBUG_PREVIEW_LEN}"
   echo "[Debug] Stagewise logging enabled for test phase: ${EXTRA_ARGS}"
 fi
+echo "[Score] mode=${SCORE_MODE}, cross_weight=${CROSS_WEIGHT}"
 
 python -u run.py \
   --is_training 1 \

@@ -185,7 +185,7 @@ class GeomAttentionLayer(nn.Module):
 class GeomAttention(nn.Module):
     def __init__(self, mask_flag=False, factor=5, scale=None, attention_dropout=0.1, 
                  output_attention=False,
-                 alpha=1.,):
+                 alpha=1., score_mode='dot_wedge', cross_weight=0.5, cross_dim=None):
         super(GeomAttention, self).__init__()
         self.scale = scale
         self.mask_flag = mask_flag
@@ -193,6 +193,10 @@ class GeomAttention(nn.Module):
         self.dropout = nn.Dropout(attention_dropout)
         
         self.alpha = alpha 
+        self.score_mode = score_mode
+        self.cross_weight = cross_weight
+        self.cross_projection = nn.Linear(cross_dim, 3, bias=False) if cross_dim is not None else None
+        self.cross_gate_logit = nn.Parameter(torch.tensor(0.0))
         self.debug_stagewise = False
         self.debug_preview_len = 5
 
@@ -209,6 +213,25 @@ class GeomAttention(nn.Module):
             f'min={detached.min().item():.6f}, max={detached.max().item():.6f}, '
             f'preview={preview}'
         )
+
+    def _normalize_scores(self, scores):
+        mean = scores.mean(dim=-1, keepdim=True)
+        stdev = scores.std(dim=-1, keepdim=True, unbiased=False).clamp_min(1e-5)
+        return (scores - mean) / stdev
+
+    def _projected_cross_scores(self, queries, keys):
+        if self.cross_projection is None:
+            raise ValueError('cross_dim must be set when score_mode=cross3d')
+        queries_3d = self.cross_projection(queries)
+        keys_3d = self.cross_projection(keys)
+        cross = torch.cross(queries_3d.unsqueeze(2), keys_3d.unsqueeze(1), dim=-1)
+        return torch.linalg.norm(cross, dim=-1).permute(0, 3, 1, 2)
+
+    def _mix_dot_and_cross(self, dot_scores, cross_scores):
+        dot_scores = self._normalize_scores(dot_scores)
+        cross_scores = self._normalize_scores(cross_scores)
+        gate = torch.sigmoid(self.cross_gate_logit)
+        return (1 - gate) * dot_scores + gate * cross_scores, gate
 
     def forward(self, queries, keys, values, attn_mask=None):
         B, L, H, E = queries.shape
@@ -227,7 +250,23 @@ class GeomAttention(nn.Module):
         wedge_norm = torch.sqrt(wedge_norm2 + 1e-8)
         self._log_tensor('wedge_product_norm', wedge_norm)
 
-        scores = (1 - self.alpha) * dot_product + self.alpha * wedge_norm
+        if self.score_mode == 'dot':
+            scores = dot_product
+        elif self.score_mode == 'wedge':
+            scores = wedge_norm
+        elif self.score_mode == 'normalized_dot_wedge':
+            scores = (1 - self.alpha) * self._normalize_scores(dot_product) + self.alpha * self._normalize_scores(wedge_norm)
+        elif self.score_mode == 'cross3d':
+            cross_scores = self._projected_cross_scores(queries, keys)
+            self._log_tensor('projected_cross3d_scores', cross_scores)
+            scores = (1 - self.cross_weight) * self._normalize_scores(dot_product) + self.cross_weight * self._normalize_scores(cross_scores)
+        elif self.score_mode == 'cross3d_gate':
+            cross_scores = self._projected_cross_scores(queries, keys)
+            self._log_tensor('projected_cross3d_scores', cross_scores)
+            scores, gate = self._mix_dot_and_cross(dot_product, cross_scores)
+            self._log_tensor('cross3d_gate_value', gate)
+        else:
+            scores = (1 - self.alpha) * dot_product + self.alpha * wedge_norm
         scores = scores * scale
         self._log_tensor('combined_attention_scores', scores)
 

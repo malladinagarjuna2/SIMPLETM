@@ -87,6 +87,11 @@ if __name__ == '__main__':
     parser.add_argument('--m', type=int, default=3, help='Number of levels for the stationary wavelet transform')
     parser.add_argument('--kernel_size', default=None, help='Specify the length of randomly initialized wavelets (if not None)')
     parser.add_argument('--alpha', type=float, default=1, help='Weight of the inner product score in geometric attention')
+    parser.add_argument('--score_mode', type=str, default='dot_wedge',
+                        choices=['dot', 'wedge', 'dot_wedge', 'normalized_dot_wedge', 'cross3d', 'cross3d_gate'],
+                        help='Attention score formula used in geometric attention')
+    parser.add_argument('--cross_weight', type=float, default=0.5,
+                        help='Weight of projected 3D cross-product score when score_mode=cross3d')
     parser.add_argument('--l1_weight', type=float, default=5e-5, help='Weight of L1 loss')
     parser.add_argument('--d_model', type=int, default=32, help='Dimensionality of pseudo tokens')
     parser.add_argument('--d_ff', type=int, default=32, help='Dimensionality of the feedforward network')
@@ -127,7 +132,7 @@ if __name__ == '__main__':
     if args.is_training:
         for ii in range(args.itr):
             # setting record of experiments
-            setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+            setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
                 args.model_id, 
                 args.data,
                 args.seq_len,
@@ -139,6 +144,8 @@ if __name__ == '__main__':
                 args.kernel_size,
                 args.m,
                 args.alpha,
+                args.score_mode,
+                args.cross_weight,
                 args.l1_weight, 
                 args.learning_rate,
                 args.lradj,
@@ -162,7 +169,7 @@ if __name__ == '__main__':
     else:
       
         ii = 0
-        setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+        setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
             args.data,
             args.seq_len,
             args.pred_len,
@@ -173,6 +180,8 @@ if __name__ == '__main__':
             args.kernel_size,
             args.m,
             args.alpha,
+            args.score_mode,
+            args.cross_weight,
             args.l1_weight, 
             args.learning_rate,
             args.lradj,
