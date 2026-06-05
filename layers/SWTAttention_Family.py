@@ -185,7 +185,7 @@ class GeomAttentionLayer(nn.Module):
 class GeomAttention(nn.Module):
     def __init__(self, mask_flag=False, factor=5, scale=None, attention_dropout=0.1, 
                  output_attention=False,
-                 alpha=1.,):
+                 alpha=1., attention_mode='full', sparse_top_k=0):
         super(GeomAttention, self).__init__()
         self.scale = scale
         self.mask_flag = mask_flag
@@ -193,6 +193,8 @@ class GeomAttention(nn.Module):
         self.dropout = nn.Dropout(attention_dropout)
         
         self.alpha = alpha 
+        self.attention_mode = attention_mode
+        self.sparse_top_k = sparse_top_k
         self.debug_stagewise = False
         self.debug_preview_len = 5
 
@@ -230,6 +232,12 @@ class GeomAttention(nn.Module):
         scores = (1 - self.alpha) * dot_product + self.alpha * wedge_norm
         scores = scores * scale
         self._log_tensor('combined_attention_scores', scores)
+
+        if self.attention_mode == 'sparse' and self.sparse_top_k > 0 and self.sparse_top_k < S:
+            top_k_values, top_k_indices = torch.topk(scores, self.sparse_top_k, dim=-1)
+            sparse_scores = torch.full_like(scores, float('-inf'))
+            scores = sparse_scores.scatter(-1, top_k_indices, top_k_values)
+            self._log_tensor('sparse_top_k_values', top_k_values)
 
         if self.mask_flag:
             if attn_mask is None:

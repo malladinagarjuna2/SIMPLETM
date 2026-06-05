@@ -34,7 +34,9 @@ class Model(nn.Module):
                     GeomAttentionLayer(
                         GeomAttention(
                             False, configs.factor, attention_dropout=configs.dropout, 
-                            output_attention=configs.output_attention, alpha=self.alpha
+                            output_attention=configs.output_attention, alpha=self.alpha,
+                            attention_mode=configs.attention_mode,
+                            sparse_top_k=configs.sparse_top_k
                         ),
                         configs.d_model, 
                         requires_grad=configs.requires_grad, 

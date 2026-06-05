@@ -7,12 +7,15 @@ model_name=SimpleTM
 DEBUG_STAGEWISE=${DEBUG_STAGEWISE:-0}
 DEBUG_MAX_BATCHES=${DEBUG_MAX_BATCHES:-1}
 DEBUG_PREVIEW_LEN=${DEBUG_PREVIEW_LEN:-5}
+ATTENTION_MODE=${ATTENTION_MODE:-full}
+SPARSE_TOP_K=${SPARSE_TOP_K:-0}
 
-EXTRA_ARGS=""
+EXTRA_ARGS="--attention_mode ${ATTENTION_MODE} --sparse_top_k ${SPARSE_TOP_K}"
 if [ "$DEBUG_STAGEWISE" = "1" ]; then
-  EXTRA_ARGS="--debug_stagewise --debug_max_batches ${DEBUG_MAX_BATCHES} --debug_preview_len ${DEBUG_PREVIEW_LEN}"
-  echo "[Debug] Stagewise logging enabled for test phase: ${EXTRA_ARGS}"
+  EXTRA_ARGS="${EXTRA_ARGS} --debug_stagewise --debug_max_batches ${DEBUG_MAX_BATCHES} --debug_preview_len ${DEBUG_PREVIEW_LEN}"
+  echo "[Debug] Stagewise logging enabled for test phase."
 fi
+echo "[Attention] mode=${ATTENTION_MODE}, sparse_top_k=${SPARSE_TOP_K}"
 
 python -u run.py \
   --is_training 1 \
