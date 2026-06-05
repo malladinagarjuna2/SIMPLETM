@@ -1,2 +1,5 @@
 __pycache__/
 *.py[cod]
+dataset/
+ETTh1.csv
+logs_*.txt
