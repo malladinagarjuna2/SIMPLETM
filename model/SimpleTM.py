@@ -16,6 +16,7 @@ class Model(nn.Module):
         self.geomattn_dropout = configs.geomattn_dropout
         self.alpha = configs.alpha
         self.kernel_size = configs.kernel_size
+        self.transform_type = getattr(configs, 'transform_type', 'stationary')
         self.debug_stagewise = getattr(configs, 'debug_stagewise', False)
         self.debug_preview_len = getattr(configs, 'debug_preview_len', 5)
         self.latest_debug = None
@@ -40,7 +41,8 @@ class Model(nn.Module):
                         m=configs.m, 
                         d_channel=configs.dec_in, 
                         kernel_size=self.kernel_size, 
-                        geomattn_dropout=self.geomattn_dropout
+                        geomattn_dropout=self.geomattn_dropout,
+                        transform_type=self.transform_type
                     ),
                     configs.d_model,
                     configs.d_ff,

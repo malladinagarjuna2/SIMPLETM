@@ -87,6 +87,7 @@ if __name__ == '__main__':
     parser.add_argument('--m', type=int, default=3, help='Number of levels for the stationary wavelet transform')
     parser.add_argument('--kernel_size', default=None, help='Specify the length of randomly initialized wavelets (if not None)')
     parser.add_argument('--alpha', type=float, default=1, help='Weight of the inner product score in geometric attention')
+    parser.add_argument('--transform_type', type=str, default='stationary', help='Transform type: stationary, direct, fourier')
     parser.add_argument('--l1_weight', type=float, default=5e-5, help='Weight of L1 loss')
     parser.add_argument('--d_model', type=int, default=32, help='Dimensionality of pseudo tokens')
     parser.add_argument('--d_ff', type=int, default=32, help='Dimensionality of the feedforward network')
@@ -134,6 +135,7 @@ if __name__ == '__main__':
                 args.e_layers,   
                 args.wv,
                 args.kernel_size,
+                args.transform_type,
                 args.m,
                 args.alpha,
                 args.l1_weight, 
@@ -168,6 +170,7 @@ if __name__ == '__main__':
             args.e_layers,
             args.wv,
             args.kernel_size,
+            args.transform_type,
             args.m,
             args.alpha,
             args.l1_weight, 

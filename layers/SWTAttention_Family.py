@@ -7,37 +7,39 @@ import pywt
 
 class WaveletEmbedding(nn.Module):
     def __init__(self, d_channel=16, swt=True, requires_grad=False, wv='db2', m=2,
-                 kernel_size=None):
+                 kernel_size=None, transform_type='stationary'):
         super().__init__()
 
         self.swt = swt
+        self.transform_type = transform_type
         self.d_channel = d_channel
         self.m = m  # Number of decomposition levels of detailed coefficients
         self.debug_stagewise = False
         self.debug_preview_len = 5
         self.debug_prefix = 'Wavelet'
         
-        if kernel_size is None:
-            self.wavelet = pywt.Wavelet(wv)
-            if self.swt:
-                h0 = torch.tensor(self.wavelet.dec_lo[::-1], dtype=torch.float32)
-                h1 = torch.tensor(self.wavelet.dec_hi[::-1], dtype=torch.float32)
+        if self.transform_type == 'stationary':
+            if kernel_size is None:
+                self.wavelet = pywt.Wavelet(wv)
+                if self.swt:
+                    h0 = torch.tensor(self.wavelet.dec_lo[::-1], dtype=torch.float32)
+                    h1 = torch.tensor(self.wavelet.dec_hi[::-1], dtype=torch.float32)
+                else:
+                    h0 = torch.tensor(self.wavelet.rec_lo[::-1], dtype=torch.float32)
+                    h1 = torch.tensor(self.wavelet.rec_hi[::-1], dtype=torch.float32)
+                self.h0 = nn.Parameter(torch.tile(h0[None, None, :], [self.d_channel, 1, 1]), requires_grad=requires_grad)
+                self.h1 = nn.Parameter(torch.tile(h1[None, None, :], [self.d_channel, 1, 1]), requires_grad=requires_grad)
+                self.kernel_size = self.h0.shape[-1]
             else:
-                h0 = torch.tensor(self.wavelet.rec_lo[::-1], dtype=torch.float32)
-                h1 = torch.tensor(self.wavelet.rec_hi[::-1], dtype=torch.float32)
-            self.h0 = nn.Parameter(torch.tile(h0[None, None, :], [self.d_channel, 1, 1]), requires_grad=requires_grad)
-            self.h1 = nn.Parameter(torch.tile(h1[None, None, :], [self.d_channel, 1, 1]), requires_grad=requires_grad)
-            self.kernel_size = self.h0.shape[-1]
-        else:
-            self.kernel_size = kernel_size
-            self.h0 = nn.Parameter(torch.Tensor(self.d_channel, 1, self.kernel_size), requires_grad=requires_grad)
-            self.h1 = nn.Parameter(torch.Tensor(self.d_channel, 1, self.kernel_size), requires_grad=requires_grad)
-            nn.init.xavier_uniform_(self.h0)
-            nn.init.xavier_uniform_(self.h1)
-        
-            with torch.no_grad():
-                self.h0.data = self.h0.data / torch.norm(self.h0.data, dim=-1, keepdim=True)
-                self.h1.data = self.h1.data / torch.norm(self.h1.data, dim=-1, keepdim=True)
+                self.kernel_size = kernel_size
+                self.h0 = nn.Parameter(torch.Tensor(self.d_channel, 1, self.kernel_size), requires_grad=requires_grad)
+                self.h1 = nn.Parameter(torch.Tensor(self.d_channel, 1, self.kernel_size), requires_grad=requires_grad)
+                nn.init.xavier_uniform_(self.h0)
+                nn.init.xavier_uniform_(self.h1)
+            
+                with torch.no_grad():
+                    self.h0.data = self.h0.data / torch.norm(self.h0.data, dim=-1, keepdim=True)
+                    self.h1.data = self.h1.data / torch.norm(self.h1.data, dim=-1, keepdim=True)
 
     def _log_tensor(self, name, tensor):
         if not self.debug_stagewise:
@@ -55,10 +57,26 @@ class WaveletEmbedding(nn.Module):
 
     def forward(self, x):
         self._log_tensor('input', x)
-        if self.swt:
-            coeffs = self.swt_decomposition(x, self.h0, self.h1, self.m, self.kernel_size)
+        if self.transform_type == 'stationary':
+            if self.swt:
+                coeffs = self.swt_decomposition(x, self.h0, self.h1, self.m, self.kernel_size)
+            else:
+                coeffs = self.swt_reconstruction(x, self.h0, self.h1, self.m, self.kernel_size)
+        elif self.transform_type == 'direct':
+            if self.swt:
+                coeffs = x.unsqueeze(-2)
+            else:
+                coeffs = x.squeeze(-2)
+        elif self.transform_type == 'fourier':
+            if self.swt:
+                X = torch.fft.fft(x, dim=-1)
+                coeffs = torch.stack([X.real, X.imag], dim=-2)
+            else:
+                X = x[:, :, 0, :] + 1j * x[:, :, 1, :]
+                coeffs = torch.fft.ifft(X, dim=-1).real
         else:
-            coeffs = self.swt_reconstruction(x, self.h0, self.h1, self.m, self.kernel_size)
+            raise ValueError(f"Unknown transform type: {self.transform_type}")
+
         self._log_tensor('output', coeffs)
         return coeffs
 
@@ -106,7 +124,7 @@ class WaveletEmbedding(nn.Module):
 class GeomAttentionLayer(nn.Module):
     def __init__(self, attention, d_model,
                  requires_grad=True, wv='db2', m=2, kernel_size=None,
-                 d_channel=None, geomattn_dropout=0.5,):
+                 d_channel=None, geomattn_dropout=0.5, transform_type='stationary'):
         super(GeomAttentionLayer, self).__init__()
 
         self.d_channel = d_channel
@@ -114,7 +132,7 @@ class GeomAttentionLayer(nn.Module):
         self.debug_stagewise = False
         self.debug_preview_len = 5
         
-        self.swt = WaveletEmbedding(d_channel=self.d_channel, swt=True, requires_grad=requires_grad, wv=wv, m=m, kernel_size=kernel_size)
+        self.swt = WaveletEmbedding(d_channel=self.d_channel, swt=True, requires_grad=requires_grad, wv=wv, m=m, kernel_size=kernel_size, transform_type=transform_type)
         self.query_projection = nn.Sequential(
             nn.Linear(d_model, d_model),
             nn.Dropout(geomattn_dropout)
@@ -129,7 +147,7 @@ class GeomAttentionLayer(nn.Module):
         )
         self.out_projection = nn.Sequential(
             nn.Linear(d_model, d_model),
-            WaveletEmbedding(d_channel=self.d_channel, swt=False, requires_grad=requires_grad, wv=wv, m=m, kernel_size=kernel_size),
+            WaveletEmbedding(d_channel=self.d_channel, swt=False, requires_grad=requires_grad, wv=wv, m=m, kernel_size=kernel_size, transform_type=transform_type),
         )
 
     def _log_tensor(self, name, tensor):
