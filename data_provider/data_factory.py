@@ -20,7 +20,7 @@ def data_provider(args, flag):
     if flag == 'test':
         shuffle_flag = False
         drop_last = True
-        batch_size = args.batch_size
+        batch_size = args.batch_size  
         freq = args.freq
     elif flag == 'pred':
         shuffle_flag = False
@@ -31,13 +31,8 @@ def data_provider(args, flag):
     else:
         shuffle_flag = True
         drop_last = True
-        batch_size = args.batch_size
+        batch_size = args.batch_size  
         freq = args.freq
-
-    data_kwargs = {}
-    if args.data == 'custom' and flag != 'pred':
-        data_kwargs['resample_rule'] = getattr(args, 'resample_rule', None)
-        data_kwargs['resample_method'] = getattr(args, 'resample_method', 'mean')
 
     data_set = Data(
         root_path=args.root_path,
@@ -48,7 +43,6 @@ def data_provider(args, flag):
         target=args.target,
         timeenc=timeenc,
         freq=freq,
-        **data_kwargs,
     )
     print(flag, len(data_set))
     data_loader = DataLoader(
