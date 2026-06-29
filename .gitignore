@@ -1,2 +1,4 @@
 __pycache__/
-*.py[cod]
+*.py[cod]dataset/Electricity/electricity.csv
+dataset/Solar/solar_AL.txt
+dataset/Electricity/.DS_Store
