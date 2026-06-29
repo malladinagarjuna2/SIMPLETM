@@ -27,7 +27,8 @@ def adjust_learning_rate(optimizer, epoch, args, scheduler=None, printout=True):
         lr = lr_adjust[epoch]
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-        if printout: print('Updating learning rate to {}'.format(lr))
+        if printout:
+            print('Updating learning rate to {}'.format(lr))
 
 
 class EarlyStopping:
@@ -91,6 +92,26 @@ def visual(true, preds=None, name='./pic/test.pdf'):
         plt.plot(preds, label='Prediction', linewidth=2)
     plt.legend()
     plt.savefig(name, bbox_inches='tight')
+    plt.close()
+
+
+def save_loss_history(history, csv_path):
+    pd.DataFrame(history).to_csv(csv_path, index=False)
+
+
+def save_learning_curve(history, image_path):
+    plt.figure(figsize=(8, 5))
+    for key, label in [('train_loss', 'Train Loss'), ('vali_loss', 'Validation Loss'), ('test_loss', 'Test Loss')]:
+        if key in history and len(history[key]) > 0:
+            plt.plot(history['epoch'], history[key], marker='o', linewidth=2, label=label)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Learning Curve')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(image_path, bbox_inches='tight')
+    plt.close()
 
 
 def adjustment(gt, pred):
