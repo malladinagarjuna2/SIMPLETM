@@ -62,6 +62,8 @@ if __name__ == '__main__':
     parser.add_argument('--lradj', type=str, default='type1', help='adjust learning rate')
     parser.add_argument('--pct_start', type=float, default=0.2, help='Warmup ratio for the learning rate scheduler')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
+    parser.add_argument('--save_learning_curve', type=int, default=1,
+                        help='Save per-epoch loss history CSV and learning curve plot during training')
 
     # GPU
     parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')
