@@ -35,11 +35,43 @@ def MSPE(pred, true):
     return np.mean(np.square((pred - true) / true))
 
 
+def R2(pred, true):
+    ss_res = np.sum((true - pred) ** 2)
+    ss_tot = np.sum((true - true.mean()) ** 2)
+    return 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+
+
+def EVS(pred, true):
+    diff_var = np.var(true - pred, ddof=1)
+    true_var = np.var(true, ddof=1)
+    return 1 - (diff_var / true_var) if true_var != 0 else 0
+
+
+def MEDAE(pred, true):
+    return np.median(np.abs(pred - true))
+
+
+def MaxErr(pred, true):
+    return np.max(np.abs(pred - true))
+
+
+def SMAPE(pred, true):
+    numerator = np.abs(pred - true)
+    denominator = (np.abs(pred) + np.abs(true)) / 2
+    smape_values = np.where(denominator == 0, 0, 2 * numerator / denominator * 100)
+    return np.mean(smape_values)
+
+
 def metric(pred, true):
     mae = MAE(pred, true)
     mse = MSE(pred, true)
     rmse = RMSE(pred, true)
     mape = MAPE(pred, true)
     mspe = MSPE(pred, true)
+    r2 = R2(pred, true)
+    evs = EVS(pred, true)
+    medae = MEDAE(pred, true)
+    maxerr = MaxErr(pred, true)
+    smape = SMAPE(pred, true)
 
-    return mae, mse, rmse, mape, mspe
+    return mae, mse, rmse, mape, mspe, r2, evs, medae, maxerr, smape
