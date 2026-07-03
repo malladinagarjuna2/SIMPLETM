@@ -172,11 +172,11 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     true = true.numpy()
                     pred = vali_data.inverse_transform(pred.reshape(-1, C)).reshape(B, T, C)
                     true = vali_data.inverse_transform(true.reshape(-1, C)).reshape(B, T, C)
-                    mae, mse, rmse, mape, mspe = metric(pred, true)
+                    mae, mse, rmse, mape, mspe, r2, evs, medae, maxerr, smape = metric(pred, true)
                     total_loss.append(mae)
                 else:
                     loss = criterion(pred, true)
-                    total_loss.append(loss)
+                    total_loss.append(loss.item())
 
         total_loss = np.average(total_loss)
         self.model.train()
@@ -185,7 +185,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
-        test_data, test_loader = self._get_data(flag='test')
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
@@ -289,10 +288,9 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
-            test_loss = self.vali(test_data, test_loader, criterion)
 
-            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
-                epoch + 1, train_steps, train_loss, vali_loss, test_loss))
+            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
+                epoch + 1, train_steps, train_loss, vali_loss))
             early_stopping(vali_loss, self.model, path)
             if early_stopping.early_stop:
                 print("Early stopping")
@@ -412,15 +410,18 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
-        mae, mse, rmse, mape, mspe = metric(preds, trues)
+        mae, mse, rmse, mape, mspe, r2, evs, medae, maxerr, smape = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
         print('rmse:{}, mape:{}, mspe:{}'.format(rmse, mape, mspe))
+        print('r2:{}, evs:{}, medae:{}, maxerr:{}, smape:{}'.format(r2, evs, medae, maxerr, smape))
         f = open("result_long_term_forecast.txt", 'a')
         f.write(setting + "  \n")
         if self.args.data == 'PEMS':
-            f.write('mae:{}, mape:{}, rmse:{}'.format(mae, mape, rmse))
+            f.write('mae:{}, mape:{}, rmse:{}, r2:{}, evs:{}, medae:{}, maxerr:{}, smape:{}'.format(
+                mae, mape, rmse, r2, evs, medae, maxerr, smape))
         else:
-            f.write('mse:{}, mae:{}'.format(mse, mae))
+            f.write('mse:{}, mae:{}, r2:{}, evs:{}, medae:{}, maxerr:{}, smape:{}'.format(
+                mse, mae, r2, evs, medae, maxerr, smape))
         f.write('\n')
         f.write('\n')
         f.close()
