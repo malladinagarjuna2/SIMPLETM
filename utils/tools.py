@@ -27,7 +27,8 @@ def adjust_learning_rate(optimizer, epoch, args, scheduler=None, printout=True):
         lr = lr_adjust[epoch]
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-        if printout: print('Updating learning rate to {}'.format(lr))
+        if printout:
+            print('Updating learning rate to {}'.format(lr))
 
 
 class EarlyStopping:
@@ -91,6 +92,42 @@ def visual(true, preds=None, name='./pic/test.pdf'):
         plt.plot(preds, label='Prediction', linewidth=2)
     plt.legend()
     plt.savefig(name, bbox_inches='tight')
+    plt.close()
+
+
+def save_loss_history(history, csv_path):
+    pd.DataFrame(history).to_csv(csv_path, index=False)
+
+
+def save_learning_curve(history, image_path):
+    epochs = history.get('epoch', [])
+    train_loss = history.get('train_loss', [])
+    vali_loss = history.get('vali_loss', [])
+
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    fig.suptitle('TimeBase: Training and Validation Loss', fontsize=16, y=0.97)
+
+    if len(train_loss) > 0:
+        axes[0].plot(epochs, train_loss, marker='o', color='tab:blue', linewidth=2)
+        axes[0].set_title('Training Loss')
+        axes[0].set_ylabel('Loss')
+        axes[0].grid(True, alpha=0.3)
+        for x, y in zip(epochs, train_loss):
+            axes[0].text(x, y, f'{y:.3f}', fontsize=8, ha='center', va='bottom')
+
+    if len(vali_loss) > 0:
+        axes[1].plot(epochs, vali_loss, marker='o', color='tab:red', linewidth=2)
+        axes[1].set_title('Validation Loss')
+        axes[1].set_xlabel('Epoch')
+        axes[1].set_ylabel('Loss')
+        axes[1].grid(True, alpha=0.3)
+        for x, y in zip(epochs, vali_loss):
+            axes[1].text(x, y, f'{y:.3f}', fontsize=8, ha='center', va='bottom')
+
+    plt.xticks(epochs)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.savefig(image_path, bbox_inches='tight')
+    plt.close()
 
 
 def adjustment(gt, pred):
