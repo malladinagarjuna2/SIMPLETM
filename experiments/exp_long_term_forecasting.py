@@ -277,10 +277,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss))
-<<<<<<< HEAD
-=======
-
->>>>>>> 84cdcdf3397e02243ab8d859f51325326e0c5bb1
             if self.args.save_learning_curve:
                 save_loss_history(history, os.path.join(path, 'loss_history.csv'))
                 save_learning_curve(history, os.path.join(path, 'learning_curve.png'))
