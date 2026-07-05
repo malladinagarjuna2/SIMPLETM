@@ -25,6 +25,10 @@ if __name__ == '__main__':
     parser.add_argument('--target', type=str, default='OT', help='target feature in S or MS task')
     parser.add_argument('--freq', type=str, default='h',
                         help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
+    parser.add_argument('--resample_rule', type=str, default=None,
+                        help='Optional pandas resample rule for custom CSV data, e.g. 1H, 8H, 12H, 24H')
+    parser.add_argument('--resample_method', type=str, default='mean',
+                        help='Aggregation method for custom CSV resampling, e.g. mean or sum')
     parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
 
     # forecasting task
@@ -35,7 +39,7 @@ if __name__ == '__main__':
     # model define
     parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
     parser.add_argument('--dec_in', type=int, default=7, help='decoder input size')
-    parser.add_argument('--c_out', type=int, default=7, help='output size') 
+    parser.add_argument('--c_out', type=int, default=7, help='output size')
     parser.add_argument('--n_heads', type=int, default=8, help='num of heads')
     parser.add_argument('--d_layers', type=int, default=1, help='num of decoder layers')
     parser.add_argument('--moving_avg', type=int, default=25, help='window size of moving average')
@@ -78,7 +82,7 @@ if __name__ == '__main__':
     parser.add_argument('--class_strategy', type=str, default='projection', help='projection/average/cls_token')
     parser.add_argument('--target_root_path', type=str, default='./data/electricity/', help='root path of the data file')
     parser.add_argument('--target_data_path', type=str, default='electricity.csv', help='data file')
-    parser.add_argument('--efficient_training', type=bool, default=False, help='whether to use efficient_training (exp_name should be partial train)') # See Figure 8 of our paper for the detail
+    parser.add_argument('--efficient_training', type=bool, default=False, help='whether to use efficient_training (exp_name should be partial train)')
     parser.add_argument('--use_norm', type=int, default=True, help='use norm and denorm')
     parser.add_argument('--partial_start_index', type=int, default=0, help='the start index of variates for partial training, '
                                                                            'you can select [partial_start_index, min(enc_in + partial_start_index, N)]')
@@ -89,6 +93,11 @@ if __name__ == '__main__':
     parser.add_argument('--m', type=int, default=3, help='Number of levels for the stationary wavelet transform')
     parser.add_argument('--kernel_size', default=None, help='Specify the length of randomly initialized wavelets (if not None)')
     parser.add_argument('--alpha', type=float, default=1, help='Weight of the inner product score in geometric attention')
+    parser.add_argument('--score_mode', type=str, default='dot_wedge',
+                        choices=['dot', 'wedge', 'dot_wedge', 'normalized_dot_wedge', 'cross3d', 'cross3d_gate'],
+                        help='Attention score formula used in geometric attention')
+    parser.add_argument('--cross_weight', type=float, default=0.5,
+                        help='Weight of projected 3D cross-product score when score_mode=cross3d')
     parser.add_argument('--l1_weight', type=float, default=5e-5, help='Weight of L1 loss')
     parser.add_argument('--d_model', type=int, default=32, help='Dimensionality of pseudo tokens')
     parser.add_argument('--d_ff', type=int, default=32, help='Dimensionality of the feedforward network')
@@ -97,13 +106,16 @@ if __name__ == '__main__':
     parser.add_argument('--output_attention', action='store_true', help='Set to False to output attn, which can be used to compute training loss')
     parser.add_argument('--debug_stagewise', action='store_true',
                         help='Print detailed dataset and model stage traces during test/predict runs')
+    parser.add_argument('--debug_test_only', action='store_true',
+                        help='Only enable deep per-layer prints for test runs (recommended).',
+                        default=True)
     parser.add_argument('--debug_max_batches', type=int, default=1,
                         help='Number of batches to trace when debug_stagewise is enabled')
     parser.add_argument('--debug_preview_len', type=int, default=5,
                         help='Number of values to preview per traced tensor')
 
     parser.add_argument('--fix_seed', type=int, default=2025, help='gpu')
-    
+
     args = parser.parse_args()
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
 
@@ -122,23 +134,26 @@ if __name__ == '__main__':
     print(args)
 
     Exp = Exp_Long_Term_Forecast
+    resample_tag = (args.resample_rule if args.resample_rule else args.freq).replace(' ', '')
 
     if args.is_training:
         for ii in range(args.itr):
-            # setting record of experiments
-            setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
-                args.model_id, 
+            setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+                args.model_id,
                 args.data,
+                resample_tag,
                 args.seq_len,
                 args.pred_len,
                 args.d_model,
                 args.d_ff,
-                args.e_layers,   
+                args.e_layers,
                 args.wv,
                 args.kernel_size,
                 args.m,
                 args.alpha,
-                args.l1_weight, 
+                args.score_mode,
+                args.cross_weight,
+                args.l1_weight,
                 args.learning_rate,
                 args.lradj,
                 args.batch_size,
@@ -146,7 +161,7 @@ if __name__ == '__main__':
                 args.use_norm,
                 ii)
 
-            exp = Exp(args)  # set experiments
+            exp = Exp(args)
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
             exp.train(setting)
 
@@ -159,10 +174,10 @@ if __name__ == '__main__':
 
             torch.cuda.empty_cache()
     else:
-      
         ii = 0
-        setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+        setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
             args.data,
+            resample_tag,
             args.seq_len,
             args.pred_len,
             args.d_model,
@@ -172,7 +187,9 @@ if __name__ == '__main__':
             args.kernel_size,
             args.m,
             args.alpha,
-            args.l1_weight, 
+            args.score_mode,
+            args.cross_weight,
+            args.l1_weight,
             args.learning_rate,
             args.lradj,
             args.batch_size,
@@ -180,7 +197,7 @@ if __name__ == '__main__':
             args.use_norm,
             ii)
 
-        exp = Exp(args)  # set experiments
+        exp = Exp(args)
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
         exp.test(setting, test=1)
         torch.cuda.empty_cache()

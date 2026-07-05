@@ -150,15 +150,9 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        if self.args.output_attention:
-                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                        else:
-                            outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                else:
-                    if self.args.output_attention:
-                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                    else:
                         outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                else:
+                    outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -206,12 +200,8 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                                                 epochs=self.args.train_epochs,
                                                 max_lr=self.args.learning_rate)
 
-
         if self.args.use_amp:
             scaler = torch.cuda.amp.GradScaler()
-        # # Efficiency: dynamic memory footprint
-        # # Track dynamic memory usage over an epoch
-        # torch.cuda.reset_peak_memory_stats()  # Reset peak memory tracking
 
         for epoch in range(self.args.train_epochs):
             iter_count = 0
@@ -237,27 +227,24 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        if self.args.output_attention:
-                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                        else:
-                            outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                        outputs, attn = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
                         f_dim = -1 if self.args.features == 'MS' else 0
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
                         batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-                        loss = criterion(outputs, batch_y) 
+                        loss = criterion(outputs, batch_y)
                         train_loss.append(loss.item())
                 else:
-                    if self.args.output_attention:
-                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                    else:
-                        outputs, attn = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                    outputs, attn = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
-                    f_dim = -1 if self.args.features == 'MS' else 0                        
+                    f_dim = -1 if self.args.features == 'MS' else 0
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-                    
-                    loss = criterion(outputs, batch_y) + self.args.l1_weight * attn[0] 
+
+                    loss = criterion(outputs, batch_y)
+                    if not self.args.output_attention:
+                        regularizer = attn[0] if isinstance(attn, (tuple, list)) else attn
+                        loss = loss + self.args.l1_weight * regularizer
                     train_loss.append(loss.item())
 
                 if (i + 1) % 30 == 0:
@@ -275,16 +262,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 else:
                     loss.backward()
                     model_optim.step()
-                    # # Efficiency: dynamic memory footprint
-                    # # Record current and peak memory usage after processing this batch
-                    # current_memory = torch.cuda.memory_allocated()
-                    # peak_memory = torch.cuda.max_memory_allocated()
-                    # print(f"Current memory: {current_memory / (1024 ** 2):.2f} MB, Peak memory: {peak_memory / (1024 ** 2):.2f} MB")
 
                 if self.args.lradj == 'TST':
                     adjust_learning_rate(model_optim, epoch + 1, self.args, scheduler, printout=False)
                     scheduler.step()
-
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
@@ -296,6 +277,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss))
+<<<<<<< HEAD
+=======
+
+>>>>>>> 84cdcdf3397e02243ab8d859f51325326e0c5bb1
             if self.args.save_learning_curve:
                 save_loss_history(history, os.path.join(path, 'loss_history.csv'))
                 save_learning_curve(history, os.path.join(path, 'learning_curve.png'))
@@ -310,7 +295,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             else:
                 adjust_learning_rate(model_optim, epoch + 1, self.args, scheduler)
 
-        
         best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))
 
@@ -346,27 +330,24 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     batch_x_mark = batch_x_mark.float().to(self.device)
                     batch_y_mark = batch_y_mark.float().to(self.device)
 
-
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-                # encoder - decoder
+                model_for_debug = self.model.module if hasattr(self.model, 'module') else self.model
+                deep_debug_this_batch = bool(self.args.debug_stagewise and i < self.args.debug_max_batches)
+                if hasattr(model_for_debug, 'set_debug'):
+                    model_for_debug.set_debug(deep_debug_this_batch)
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        if self.args.output_attention:
-                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                        else:
-                            outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                else:
-                    if self.args.output_attention:
-                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                    else:
                         outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                else:
+                    outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                if hasattr(model_for_debug, 'set_debug'):
+                    model_for_debug.set_debug(False)
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
-                model_for_debug = self.model.module if hasattr(self.model, 'module') else self.model
                 if self.args.debug_stagewise and i < self.args.debug_max_batches:
                     self._print_stagewise_trace(
                         i,
@@ -408,7 +389,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             preds = test_data.inverse_transform(preds.reshape(-1, C)).reshape(B, T, C)
             trues = test_data.inverse_transform(trues.reshape(-1, C)).reshape(B, T, C)
 
-        # result save
         folder_path = './checkpoints/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
@@ -429,9 +409,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         f.write('\n')
         f.close()
 
-    
         return
-
 
     def predict(self, setting, load=False):
         pred_data, pred_loader = self._get_data(flag='pred')
@@ -451,21 +429,13 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 batch_x_mark = batch_x_mark.float().to(self.device)
                 batch_y_mark = batch_y_mark.float().to(self.device)
 
-    
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-                # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
-                        if self.args.output_attention:
-                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                        else:
-                            outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                else:
-                    if self.args.output_attention:
-                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                    else:
                         outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                else:
+                    outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 outputs = outputs.detach().cpu().numpy()
                 if pred_data.scale and self.args.inverse:
                     shape = outputs.shape
@@ -475,7 +445,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         preds = np.array(preds)
         preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
 
-        # result save
         folder_path = './results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
@@ -483,3 +452,4 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         np.save(folder_path + 'real_prediction.npy', preds)
 
         return
+
