@@ -104,28 +104,21 @@ def save_learning_curve(history, image_path):
     train_loss = history.get('train_loss', [])
     vali_loss = history.get('vali_loss', [])
 
-    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
-    fig.suptitle('TimeBase: Training and Validation Loss', fontsize=16, y=0.97)
+    plt.figure(figsize=(10, 6))
+    plt.title('Loss', fontsize=16)
 
     if len(train_loss) > 0:
-        axes[0].plot(epochs, train_loss, marker='o', color='tab:blue', linewidth=2)
-        axes[0].set_title('Training Loss')
-        axes[0].set_ylabel('Loss')
-        axes[0].grid(True, alpha=0.3)
-        for x, y in zip(epochs, train_loss):
-            axes[0].text(x, y, f'{y:.3f}', fontsize=8, ha='center', va='bottom')
+        plt.plot(epochs, train_loss, label='train', color='tab:blue', linewidth=2)
 
     if len(vali_loss) > 0:
-        axes[1].plot(epochs, vali_loss, marker='o', color='tab:red', linewidth=2)
-        axes[1].set_title('Validation Loss')
-        axes[1].set_xlabel('Epoch')
-        axes[1].set_ylabel('Loss')
-        axes[1].grid(True, alpha=0.3)
-        for x, y in zip(epochs, vali_loss):
-            axes[1].text(x, y, f'{y:.3f}', fontsize=8, ha='center', va='bottom')
+        plt.plot(epochs, vali_loss, label='validation', color='tab:orange', linewidth=2)
 
-    plt.xticks(epochs)
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    if len(epochs) > 0:
+        plt.xticks(epochs)
+    plt.legend()
+    plt.tight_layout()
     plt.savefig(image_path, bbox_inches='tight')
     plt.close()
 
