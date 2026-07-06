@@ -93,6 +93,9 @@ if __name__ == '__main__':
     parser.add_argument('--d_model', type=int, default=32, help='Dimensionality of pseudo tokens')
     parser.add_argument('--d_ff', type=int, default=32, help='Dimensionality of the feedforward network')
     parser.add_argument('--e_layers', type=int, default=1, help='Number of SimpleTM layers')
+    parser.add_argument('--use_band_attention', action='store_true', help='Enable adaptive weighting over SWT bands before the shared Transformer attention')
+    parser.add_argument('--band_attention_hidden_dim', type=int, default=None, help='Hidden dimension of the lightweight band attention MLP; defaults to number of bands when omitted')
+    parser.add_argument('--band_attention_activation', type=str, default='softmax', choices=['softmax', 'sigmoid'], help='Band attention normalization used to convert band logits into importance weights')
     parser.add_argument('--compile', type=bool, default=False, help='Set to True to enable compilation, which can accelerate speed but may slightly impact performance')
     parser.add_argument('--output_attention', action='store_true', help='Set to False to output attn, which can be used to compute training loss')
     parser.add_argument('--debug_stagewise', action='store_true',

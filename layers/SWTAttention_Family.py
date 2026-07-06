@@ -5,6 +5,35 @@ from math import sqrt
 import pywt
 
 
+class BandAttention(nn.Module):
+    def __init__(self, num_bands, hidden_dim=None, activation='softmax'):
+        super().__init__()
+        hidden_dim = hidden_dim or max(1, num_bands)
+        self.num_bands = num_bands
+        self.activation = activation.lower()
+        self.mlp = nn.Sequential(
+            nn.Linear(num_bands, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, num_bands),
+        )
+
+        if self.activation not in {'softmax', 'sigmoid'}:
+            raise ValueError(f'Unsupported band attention activation: {activation}')
+
+    def forward(self, coeffs):
+        # coeffs: [batch, num_variables, num_bands, d_model]
+        pooled = coeffs.mean(dim=(1, 3))
+        logits = self.mlp(pooled)
+
+        if self.activation == 'softmax':
+            weights = torch.softmax(logits, dim=-1)
+        else:
+            weights = torch.sigmoid(logits)
+
+        weighted_coeffs = coeffs * weights[:, None, :, None]
+        return weighted_coeffs, weights
+
+
 class WaveletEmbedding(nn.Module):
     def __init__(self, d_channel=16, swt=True, requires_grad=False, wv='db2', m=2,
                  kernel_size=None):
@@ -106,15 +135,25 @@ class WaveletEmbedding(nn.Module):
 class GeomAttentionLayer(nn.Module):
     def __init__(self, attention, d_model,
                  requires_grad=True, wv='db2', m=2, kernel_size=None,
-                 d_channel=None, geomattn_dropout=0.5,):
+                 d_channel=None, geomattn_dropout=0.5,
+                 use_band_attention=False, band_attention_hidden_dim=None,
+                 band_attention_activation='softmax'):
         super(GeomAttentionLayer, self).__init__()
 
         self.d_channel = d_channel
         self.inner_attention = attention
         self.debug_stagewise = False
         self.debug_preview_len = 5
+        self.use_band_attention = use_band_attention
         
         self.swt = WaveletEmbedding(d_channel=self.d_channel, swt=True, requires_grad=requires_grad, wv=wv, m=m, kernel_size=kernel_size)
+        self.band_attention = None
+        if self.use_band_attention:
+            self.band_attention = BandAttention(
+                num_bands=m + 1,
+                hidden_dim=band_attention_hidden_dim,
+                activation=band_attention_activation,
+            )
         self.query_projection = nn.Sequential(
             nn.Linear(d_model, d_model),
             nn.Dropout(geomattn_dropout)
@@ -155,13 +194,27 @@ class GeomAttentionLayer(nn.Module):
         self.out_projection[1].debug_prefix = 'InverseWaveletUpdate'
 
         self._log_tensor('queries_input', queries)
+        # queries/keys/values: [batch, num_variables, d_model]
         queries = self.swt(queries)
         keys = self.swt(keys)
         values = self.swt(values)
+        # SWT coefficients: [batch, num_variables, num_bands=m+1, d_model]
         self._log_tensor('queries_after_swt', queries)
         self._log_tensor('keys_after_swt', keys)
         self._log_tensor('values_after_swt', values)
 
+        if self.band_attention is not None:
+            queries, query_band_weights = self.band_attention(queries)
+            keys, key_band_weights = self.band_attention(keys)
+            values, value_band_weights = self.band_attention(values)
+            self._log_tensor('queries_after_band_attention', queries)
+            self._log_tensor('keys_after_band_attention', keys)
+            self._log_tensor('values_after_band_attention', values)
+            self._log_tensor('query_band_weights', query_band_weights)
+            self._log_tensor('key_band_weights', key_band_weights)
+            self._log_tensor('value_band_weights', value_band_weights)
+
+        # [B, N, M + 1, D] -> [B, D, M + 1, N]
         queries = self.query_projection(queries).permute(0,3,2,1)
         keys = self.key_projection(keys).permute(0,3,2,1)
         values = self.value_projection(values).permute(0,3,2,1)
@@ -176,6 +229,7 @@ class GeomAttentionLayer(nn.Module):
         )
         self._log_tensor('attention_weighted_values', out)
 
+        # [B, D, M + 1, N] -> [B, N, M + 1, D] -> [B, N, D]
         out = self.out_projection(out.permute(0,3,2,1))
         self._log_tensor('updated_multivariate_coefficients', out)
 

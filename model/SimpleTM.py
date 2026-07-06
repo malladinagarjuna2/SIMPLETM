@@ -16,6 +16,9 @@ class Model(nn.Module):
         self.geomattn_dropout = configs.geomattn_dropout
         self.alpha = configs.alpha
         self.kernel_size = configs.kernel_size
+        self.use_band_attention = getattr(configs, 'use_band_attention', False)
+        self.band_attention_hidden_dim = getattr(configs, 'band_attention_hidden_dim', None)
+        self.band_attention_activation = getattr(configs, 'band_attention_activation', 'softmax')
         self.debug_stagewise = getattr(configs, 'debug_stagewise', False)
         self.debug_preview_len = getattr(configs, 'debug_preview_len', 5)
         self.latest_debug = None
@@ -40,7 +43,10 @@ class Model(nn.Module):
                         m=configs.m, 
                         d_channel=configs.dec_in, 
                         kernel_size=self.kernel_size, 
-                        geomattn_dropout=self.geomattn_dropout
+                        geomattn_dropout=self.geomattn_dropout,
+                        use_band_attention=self.use_band_attention,
+                        band_attention_hidden_dim=self.band_attention_hidden_dim,
+                        band_attention_activation=self.band_attention_activation,
                     ),
                     configs.d_model,
                     configs.d_ff,
@@ -82,7 +88,6 @@ class Model(nn.Module):
             means = x_enc.mean(1, keepdim=True).detach()
             x_enc = x_enc - means
             stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
-            # x_enc /= stdev
             x_enc = x_enc / stdev
             if self.debug_stagewise:
                 debug_info['norm_means'] = self._tensor_preview(means)
@@ -94,12 +99,12 @@ class Model(nn.Module):
         enc_embedding = self.enc_embedding
         encoder = self.encoder
         projector = self.projector
-        # Linear Projection             B L N -> B L' (pseudo temporal tokens) N 
+        # Linear projection: [B, seq_len, N] -> [B, N, d_model]
         enc_out = enc_embedding(x_enc, x_mark_enc) 
         if self.debug_stagewise:
             debug_info['embedding_output'] = self._tensor_preview(enc_out)
 
-        # SimpleTM Layer                B L' N -> B L' N 
+        # SimpleTM encoder: [B, N, d_model] -> [B, N, d_model]
         enc_out, attns = encoder(enc_out, attn_mask=None)
         if self.debug_stagewise:
             debug_info['encoder_output'] = self._tensor_preview(enc_out)
@@ -108,7 +113,7 @@ class Model(nn.Module):
                 for attn in attns
             ]
 
-        # Output Projection             B L' N -> B H (Horizon) N
+        # Output head: [B, N, d_model] -> [B, pred_len, N]
         dec_out = projector(enc_out).permute(0, 2, 1)[:, :, :N] 
         if self.debug_stagewise:
             debug_info['projector_output_pre_denorm'] = self._tensor_preview(dec_out)
@@ -123,9 +128,12 @@ class Model(nn.Module):
 
         if self.debug_stagewise:
             debug_info['notes'] = [
-                'Input arrives as [batch, seq_len, num_variables].',
-                'DataEmbedding_inverted permutes it to [batch, num_variables, seq_len], so each variable becomes a token.',
-                'The test loop passes time marks, but Model.forward currently calls forecast(x_enc, None, None, None), so time features are ignored in this architecture.'
+                'Input arrives as [B, seq_len, N] where N is the number of variables.',
+                'DataEmbedding_inverted permutes to [B, N, seq_len] and linearly projects each variable token to [B, N, d_model].',
+                'Inside each GeomAttentionLayer, SWT expands [B, N, d_model] to [B, N, m+1, d_model] with one approximation band and m detail bands.',
+                'If band attention is enabled, pooled band descriptors live in [B, m+1], learned band weights also live in [B, m+1], and they rescale the SWT coefficients before Transformer attention.',
+                'The shared geometric attention consumes [B, d_model, m+1, N], attends across the band axis, then ISWT reconstructs back to [B, N, d_model].',
+                'Model.forward currently calls forecast(x_enc, None, None, None), so time features are ignored in this architecture.'
             ]
             self.latest_debug = debug_info
         else:
