@@ -2,7 +2,7 @@ from torch.optim import lr_scheduler
 
 from data_provider.data_factory import data_provider
 from experiments.exp_basic import Exp_Basic
-from utils.tools import EarlyStopping, adjust_learning_rate, visual
+from utils.tools import EarlyStopping, adjust_learning_rate, save_learning_curve, save_loss_history, visual
 from utils.metrics import metric
 import torch
 import torch.nn as nn
@@ -185,7 +185,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
-        test_data, test_loader = self._get_data(flag='test')
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
@@ -198,6 +197,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
         model_optim = self._select_optimizer()
         criterion = self._select_criterion()
+        history = {'epoch': [], 'train_loss': [], 'vali_loss': []}
 
         if self.args.lradj == 'TST':
             scheduler = lr_scheduler.OneCycleLR(optimizer=model_optim,
@@ -289,10 +289,16 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
-            test_loss = self.vali(test_data, test_loader, criterion)
 
-            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
-                epoch + 1, train_steps, train_loss, vali_loss, test_loss))
+            history['epoch'].append(epoch + 1)
+            history['train_loss'].append(float(train_loss))
+            history['vali_loss'].append(float(vali_loss))
+
+            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
+                epoch + 1, train_steps, train_loss, vali_loss))
+            if self.args.save_learning_curve:
+                save_loss_history(history, os.path.join(path, 'loss_history.csv'))
+                save_learning_curve(history, os.path.join(path, 'learning_curve.png'))
             early_stopping(vali_loss, self.model, path)
             if early_stopping.early_stop:
                 print("Early stopping")
