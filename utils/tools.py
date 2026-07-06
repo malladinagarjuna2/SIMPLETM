@@ -147,3 +147,44 @@ def adjustment(gt, pred):
 
 def cal_accuracy(y_pred, y_true):
     return np.mean(y_pred == y_true)
+
+
+def save_learning_curve(history, image_path):
+    """
+    Save training and validation loss curves as separate subplots
+    """
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8))
+    
+    # Training loss subplot (top)
+    axes[0].plot(history['epoch'], history['train_loss'], 'b-', marker='o', label='Training Loss')
+    for i, (ep, loss) in enumerate(zip(history['epoch'], history['train_loss'])):
+        axes[0].annotate(f'{loss:.4f}', (ep, loss), textcoords="offset points", xytext=(0,5), ha='center', fontsize=8)
+    axes[0].set_ylabel('Loss', fontsize=12)
+    axes[0].set_title('TimeBase: Training Loss', fontsize=14, fontweight='bold')
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend(loc='upper right')
+    
+    # Validation loss subplot (bottom)
+    axes[1].plot(history['epoch'], history['vali_loss'], 'r-', marker='o', label='Validation Loss')
+    for i, (ep, loss) in enumerate(zip(history['epoch'], history['vali_loss'])):
+        axes[1].annotate(f'{loss:.4f}', (ep, loss), textcoords="offset points", xytext=(0,5), ha='center', fontsize=8)
+    axes[1].set_xlabel('Epoch', fontsize=12)
+    axes[1].set_ylabel('Loss', fontsize=12)
+    axes[1].set_title('TimeBase: Validation Loss', fontsize=14, fontweight='bold')
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend(loc='upper right')
+    
+    # Shared x-axis settings
+    axes[1].set_xticks(history['epoch'])
+    
+    plt.tight_layout()
+    plt.savefig(image_path, dpi=100, bbox_inches='tight')
+    plt.close()
+
+
+def save_loss_history(history, csv_path):
+    """
+    Save loss history to CSV file
+    """
+    df = pd.DataFrame(history)
+    df.to_csv(csv_path, index=False)
