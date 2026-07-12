@@ -95,8 +95,15 @@ if __name__ == '__main__':
     parser.add_argument('--e_layers', type=int, default=1, help='Number of SimpleTM layers')
     parser.add_argument('--compile', type=bool, default=False, help='Set to True to enable compilation, which can accelerate speed but may slightly impact performance')
     parser.add_argument('--output_attention', action='store_true', help='Set to False to output attn, which can be used to compute training loss')
+    parser.add_argument('--attention_mode', type=str, default='full', choices=['full', 'sparse'],
+                        help='Attention mode. full keeps all scores; sparse keeps top-k scores before softmax')
+    parser.add_argument('--sparse_top_k', type=int, default=0,
+                        help='Number of attention scores to keep per query when attention_mode=sparse')
     parser.add_argument('--debug_stagewise', action='store_true',
                         help='Print detailed dataset and model stage traces during test/predict runs')
+    parser.add_argument('--debug_test_only', action='store_true',
+                        help='Only enable deep per-layer prints for test runs (recommended).',
+                        default=True)
     parser.add_argument('--debug_max_batches', type=int, default=1,
                         help='Number of batches to trace when debug_stagewise is enabled')
     parser.add_argument('--debug_preview_len', type=int, default=5,
@@ -126,7 +133,7 @@ if __name__ == '__main__':
     if args.is_training:
         for ii in range(args.itr):
             # setting record of experiments
-            setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+            setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
                 args.model_id, 
                 args.data,
                 args.seq_len,
@@ -142,6 +149,8 @@ if __name__ == '__main__':
                 args.learning_rate,
                 args.lradj,
                 args.batch_size,
+                args.attention_mode,
+                args.sparse_top_k,
                 args.fix_seed,
                 args.use_norm,
                 ii)
@@ -161,7 +170,7 @@ if __name__ == '__main__':
     else:
       
         ii = 0
-        setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+        setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
             args.data,
             args.seq_len,
             args.pred_len,
@@ -176,6 +185,8 @@ if __name__ == '__main__':
             args.learning_rate,
             args.lradj,
             args.batch_size,
+            args.attention_mode,
+            args.sparse_top_k,
             args.fix_seed,
             args.use_norm,
             ii)
