@@ -9,6 +9,7 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
+
 class Dataset_ETT_hour(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
@@ -184,7 +185,8 @@ class Dataset_ETT_minute(Dataset):
 class Dataset_Custom(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
-                 target='OT', scale=True, timeenc=0, freq='h'):
+                 target='OT', scale=True, timeenc=0, freq='h',
+                 resample_rule=None, resample_method='mean'):
         if size == None:
             self.seq_len = 24 * 4 * 4
             self.label_len = 24 * 4
@@ -202,15 +204,62 @@ class Dataset_Custom(Dataset):
         self.scale = scale
         self.timeenc = timeenc
         self.freq = freq
+        self.resample_rule = resample_rule
+        self.resample_method = resample_method
 
         self.root_path = root_path
         self.data_path = data_path
         self.__read_data__()
 
+    def _prepare_datetime_column(self, df_raw):
+        df_raw = df_raw.copy()
+        columns = list(df_raw.columns)
+
+        if 'date' in columns:
+            datetime_text = df_raw['date'].astype(str).str.strip()
+            time_col = next((col for col in ['time', 'Time', 'TIME'] if col in columns), None)
+            if time_col is not None:
+                datetime_text = datetime_text + ' ' + df_raw[time_col].astype(str).str.strip()
+                df_raw = df_raw.drop(columns=[time_col])
+            df_raw['date'] = pd.to_datetime(datetime_text)
+            return df_raw
+
+        for datetime_col in ['datetime', 'Datetime', 'timestamp', 'Timestamp']:
+            if datetime_col in columns:
+                df_raw = df_raw.rename(columns={datetime_col: 'date'})
+                df_raw['date'] = pd.to_datetime(df_raw['date'])
+                return df_raw
+
+        raise ValueError('Custom dataset must contain a date column or a datetime/timestamp column.')
+
+    def _resample_data(self, df_raw):
+        df_raw = self._prepare_datetime_column(df_raw)
+        df_raw = df_raw.sort_values('date').reset_index(drop=True)
+
+        numeric_cols = [col for col in df_raw.columns if col != 'date']
+        for col in numeric_cols:
+            df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce')
+
+        if not self.resample_rule:
+            return df_raw.dropna(subset=['date']).reset_index(drop=True)
+
+        df_resampled = (
+            df_raw
+            .set_index('date')[numeric_cols]
+            .resample(self.resample_rule)
+            .agg(self.resample_method)
+            .dropna(how='any')
+            .reset_index()
+        )
+        self.freq = self.resample_rule
+        return df_resampled
+
     def __read_data__(self):
         self.scaler = StandardScaler()
         df_raw = pd.read_csv(os.path.join(self.root_path,
                                           self.data_path))
+        df_raw = self._resample_data(df_raw)
+
         cols = list(df_raw.columns)
         cols.remove(self.target)
         cols.remove('date')
@@ -236,13 +285,15 @@ class Dataset_Custom(Dataset):
         else:
             data = df_data.values
 
-        df_stamp = df_raw[['date']][border1:border2]
+        df_stamp = df_raw[['date']][border1:border2].copy()
         df_stamp['date'] = pd.to_datetime(df_stamp.date)
         if self.timeenc == 0:
             df_stamp['month'] = df_stamp.date.apply(lambda row: row.month, 1)
             df_stamp['day'] = df_stamp.date.apply(lambda row: row.day, 1)
             df_stamp['weekday'] = df_stamp.date.apply(lambda row: row.weekday(), 1)
             df_stamp['hour'] = df_stamp.date.apply(lambda row: row.hour, 1)
+            if (df_stamp.date.dt.minute != 0).any():
+                df_stamp['minute'] = df_stamp.date.apply(lambda row: row.minute, 1)
             data_stamp = df_stamp.drop(['date'], 1).values
         elif self.timeenc == 1:
             data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq)
@@ -319,7 +370,7 @@ class Dataset_PEMS(Dataset):
         self.data_y = df
 
     def __getitem__(self, index):
-        if self.set_type == 2:  
+        if self.set_type == 2:
             s_begin = index * 12
         else:
             s_begin = index
@@ -335,7 +386,7 @@ class Dataset_PEMS(Dataset):
         return seq_x, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):
-        if self.set_type == 2: 
+        if self.set_type == 2:
             return (len(self.data_x) - self.seq_len - self.pred_len + 1) // 12
         else:
             return len(self.data_x) - self.seq_len - self.pred_len + 1
