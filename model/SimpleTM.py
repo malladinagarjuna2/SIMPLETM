@@ -18,7 +18,16 @@ class Model(nn.Module):
         self.kernel_size = configs.kernel_size
         self.use_band_attention = getattr(configs, 'use_band_attention', False)
         self.band_attention_hidden_dim = getattr(configs, 'band_attention_hidden_dim', None)
-        self.band_attention_activation = getattr(configs, 'band_attention_activation', 'softmax')
+        self.band_attention_activation = getattr(configs, 'band_attention_activation', 'identity_softmax')
+        self.band_attention_pooling = getattr(configs, 'band_attention_pooling', 'energy')
+        self.band_attention_per_variable = getattr(configs, 'band_attention_per_variable', False)
+        self.band_attention_apply_to = getattr(configs, 'band_attention_apply_to', 'v')
+        self.band_attention_shared = not getattr(configs, 'band_attention_separate_qkv', False)
+        self.band_attention_horizon = getattr(configs, 'band_attention_horizon', False)
+        self.use_band_mixing = getattr(configs, 'use_band_mixing', False)
+        self.band_mixing_hidden_dim = getattr(configs, 'band_mixing_hidden_dim', None)
+        self.band_mixing_dropout = getattr(configs, 'band_mixing_dropout', 0.0)
+        self.band_mixing_bidirectional = not getattr(configs, 'band_mixing_unidirectional', False)
         self.debug_stagewise = getattr(configs, 'debug_stagewise', False)
         self.debug_preview_len = getattr(configs, 'debug_preview_len', 5)
         self.latest_debug = None
@@ -47,6 +56,16 @@ class Model(nn.Module):
                         use_band_attention=self.use_band_attention,
                         band_attention_hidden_dim=self.band_attention_hidden_dim,
                         band_attention_activation=self.band_attention_activation,
+                        band_attention_pooling=self.band_attention_pooling,
+                        band_attention_per_variable=self.band_attention_per_variable,
+                        band_attention_apply_to=self.band_attention_apply_to,
+                        band_attention_shared=self.band_attention_shared,
+                        band_attention_horizon=self.band_attention_horizon,
+                        use_band_mixing=self.use_band_mixing,
+                        band_mixing_hidden_dim=self.band_mixing_hidden_dim,
+                        band_mixing_dropout=self.band_mixing_dropout,
+                        band_mixing_bidirectional=self.band_mixing_bidirectional,
+                        pred_len=configs.pred_len,
                     ),
                     configs.d_model,
                     configs.d_ff,
