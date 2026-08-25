@@ -3,35 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from math import sqrt
 import pywt
-
-
-class BandAttention(nn.Module):
-    def __init__(self, num_bands, hidden_dim=None, activation='softmax'):
-        super().__init__()
-        hidden_dim = hidden_dim or max(1, num_bands)
-        self.num_bands = num_bands
-        self.activation = activation.lower()
-        self.mlp = nn.Sequential(
-            nn.Linear(num_bands, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, num_bands),
-        )
-
-        if self.activation not in {'softmax', 'sigmoid'}:
-            raise ValueError(f'Unsupported band attention activation: {activation}')
-
-    def forward(self, coeffs):
-        # coeffs: [batch, num_variables, num_bands, d_model]
-        pooled = coeffs.mean(dim=(1, 3))
-        logits = self.mlp(pooled)
-
-        if self.activation == 'softmax':
-            weights = torch.softmax(logits, dim=-1)
-        else:
-            weights = torch.sigmoid(logits)
-
-        weighted_coeffs = coeffs * weights[:, None, :, None]
-        return weighted_coeffs, weights
+from layers.band_modules import BandAttention, BandMixing
 
 
 class WaveletEmbedding(nn.Module):
@@ -137,7 +109,12 @@ class GeomAttentionLayer(nn.Module):
                  requires_grad=True, wv='db2', m=2, kernel_size=None,
                  d_channel=None, geomattn_dropout=0.5,
                  use_band_attention=False, band_attention_hidden_dim=None,
-                 band_attention_activation='softmax'):
+                 band_attention_activation='identity_softmax',
+                 band_attention_pooling='energy', band_attention_per_variable=False,
+                 band_attention_apply_to='v', band_attention_shared=True,
+                 band_attention_horizon=False, use_band_mixing=False,
+                 band_mixing_hidden_dim=None, band_mixing_dropout=0.0,
+                 band_mixing_bidirectional=True, pred_len=None):
         super(GeomAttentionLayer, self).__init__()
 
         self.d_channel = d_channel
@@ -145,6 +122,12 @@ class GeomAttentionLayer(nn.Module):
         self.debug_stagewise = False
         self.debug_preview_len = 5
         self.use_band_attention = use_band_attention
+        self.use_band_mixing = use_band_mixing
+        self.band_attention_apply_to = band_attention_apply_to
+        self.band_attention_shared = band_attention_shared
+        self.last_band_weights = None
+        if band_attention_apply_to not in {'v', 'qk', 'qkv'}:
+            raise ValueError(f'Unsupported band attention apply_to: {band_attention_apply_to}')
         
         self.swt = WaveletEmbedding(d_channel=self.d_channel, swt=True, requires_grad=requires_grad, wv=wv, m=m, kernel_size=kernel_size)
         self.band_attention = None
@@ -153,6 +136,18 @@ class GeomAttentionLayer(nn.Module):
                 num_bands=m + 1,
                 hidden_dim=band_attention_hidden_dim,
                 activation=band_attention_activation,
+                pooling=band_attention_pooling,
+                per_variable=band_attention_per_variable,
+                horizon_conditioned=band_attention_horizon,
+                pred_len=pred_len,
+            )
+        self.band_mixing = None
+        if self.use_band_mixing:
+            self.band_mixing = BandMixing(
+                num_bands=m + 1,
+                hidden_dim=band_mixing_hidden_dim,
+                dropout=band_mixing_dropout,
+                bidirectional=band_mixing_bidirectional,
             )
         self.query_projection = nn.Sequential(
             nn.Linear(d_model, d_model),
@@ -203,10 +198,28 @@ class GeomAttentionLayer(nn.Module):
         self._log_tensor('keys_after_swt', keys)
         self._log_tensor('values_after_swt', values)
 
+        if self.band_mixing is not None:
+            queries = self.band_mixing(queries)
+            keys = self.band_mixing(keys)
+            values = self.band_mixing(values)
+            self._log_tensor('queries_after_band_mixing', queries)
+            self._log_tensor('keys_after_band_mixing', keys)
+            self._log_tensor('values_after_band_mixing', values)
+
         if self.band_attention is not None:
-            queries, query_band_weights = self.band_attention(queries)
-            keys, key_band_weights = self.band_attention(keys)
-            values, value_band_weights = self.band_attention(values)
+            if self.band_attention_shared:
+                query_band_weights = self.band_attention.compute_weights(queries)
+                key_band_weights = value_band_weights = query_band_weights
+            else:
+                query_band_weights = self.band_attention.compute_weights(queries)
+                key_band_weights = self.band_attention.compute_weights(keys)
+                value_band_weights = self.band_attention.compute_weights(values)
+            self.last_band_weights = query_band_weights.detach()
+            if self.band_attention_apply_to in {'qk', 'qkv'}:
+                queries = self.band_attention.apply_weights(queries, query_band_weights)
+                keys = self.band_attention.apply_weights(keys, key_band_weights)
+            if self.band_attention_apply_to in {'v', 'qkv'}:
+                values = self.band_attention.apply_weights(values, value_band_weights)
             self._log_tensor('queries_after_band_attention', queries)
             self._log_tensor('keys_after_band_attention', keys)
             self._log_tensor('values_after_band_attention', values)
